@@ -77,14 +77,14 @@ def check_user_access(user_id):
     
     return False, "inactive"
 
-# ========== ACTIVATE COMMAND (FIXED) ==========
+# ========== ACTIVATE COMMAND ==========
 async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Activate license manually"""
     if not context.args:
         await update.message.reply_text(
-            "❌ **Usage:** `/activate LICENSE_KEY`\n\n"
-            "Example: `/activate MOV-ABC123XYZ789`",
-            parse_mode='Markdown'
+            "❌ <b>Usage:</b> <code>/activate LICENSE_KEY</code>\n\n"
+            "Example: <code>/activate MOV-ABC123XYZ789</code>",
+            parse_mode='HTML'
         )
         return
     
@@ -135,11 +135,11 @@ async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expiry_str = datetime.strptime(expiry_date, '%Y-%m-%d %H:%M:%S.%f').strftime('%d-%b-%Y')
     
     await update.message.reply_text(
-        f"✅ **License Activated!**\n\n"
-        f"**Plan:** {plan}\n"
-        f"**Expiry:** {expiry_str}\n\n"
+        f"✅ <b>License Activated!</b>\n\n"
+        f"<b>Plan:</b> {plan}\n"
+        f"<b>Expiry:</b> {expiry_str}\n\n"
         f"Enjoy the bot! 🎬",
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 # ========== PAYMENT HANDLERS ==========
@@ -152,10 +152,10 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if has_access:
         await update.message.reply_text(
-            "✅ **Aap already active user hain!**\n\n"
+            "✅ <b>Aap already active user hain!</b>\n\n"
             "Aap bot use kar sakte hain.\n"
             "Apna plan check karne ke liye /myplan use karein.",
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         return
     
@@ -171,16 +171,16 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "💳 **Movie Bot Subscription**\n\n"
+        "💳 <b>Movie Bot Subscription</b>\n\n"
         "Bot use karne ke liye subscription leni hogi.\n\n"
-        "**Prices:**\n"
+        "<b>Prices:</b>\n"
         "• 1 Day Free Trial\n"
         "• Weekly: 100 Rs\n"
         "• Monthly: 300 Rs\n"
         "• Yearly: 2000 Rs\n\n"
         "Choose plan:",
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -192,18 +192,18 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if data == "buy_help":
         help_text = (
-            "❓ **Payment Help**\n\n"
-            "**Secure Payment System:**\n\n"
+            "❓ <b>Payment Help</b>\n\n"
+            "<b>Secure Payment System:</b>\n\n"
             "1. Choose a plan\n"
             "2. Send payment to given JazzCash/EasyPaisa number\n"
             "3. Take screenshot of payment\n"
             "4. Upload screenshot here\n"
             "5. Add transaction ID in caption\n"
             "6. Admin will verify within 1-2 hours\n\n"
-            "**Payment Methods:**\n"
+            "<b>Payment Methods:</b>\n"
             f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
             f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}\n\n"
-            "**⚠️ Important:**\n"
+            "<b>⚠️ Important:</b>\n"
             "• Keep screenshot as proof\n"
             "• Fake transactions will be blocked\n"
             "• Admin verification is mandatory"
@@ -212,7 +212,7 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="buy_back")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='HTML')
         return
     
     if data == "buy_back":
@@ -226,8 +226,9 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            "💳 **Movie Bot Subscription**\n\nChoose a plan:",
-            reply_markup=reply_markup
+            "💳 <b>Movie Bot Subscription</b>\n\nChoose a plan:",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
         )
         return
     
@@ -273,14 +274,14 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bio.seek(0)
     
     instructions = (
-        f"🛍️ **Payment Details**\n\n"
-        f"**Plan:** {plan}\n"
-        f"**Amount:** {amount} Rs\n"
-        f"**Payment ID:** `{payment_id}`\n\n"
-        f"**Send payment to:**\n"
+        f"🛍️ <b>Payment Details</b>\n\n"
+        f"<b>Plan:</b> {plan}\n"
+        f"<b>Amount:</b> {amount} Rs\n"
+        f"<b>Payment ID:</b> <code>{payment_id}</code>\n\n"
+        f"<b>Send payment to:</b>\n"
         f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
         f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}\n\n"
-        f"**📸 Steps:**\n"
+        f"<b>📸 Steps:</b>\n"
         f"1. Send payment to above number\n"
         f"2. Take screenshot\n"
         f"3. Click 'I have paid' button\n"
@@ -292,7 +293,7 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_photo(
         photo=bio,
         caption=instructions,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     
     keyboard = [[InlineKeyboardButton("✅ I have paid", callback_data=f"paid_{payment_id}")]]
@@ -311,12 +312,13 @@ async def paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_payment_id'] = payment_id
     
     await query.edit_message_text(
-        f"📸 **Upload Payment Proof**\n\n"
-        f"Payment ID: `{payment_id}`\n\n"
+        f"📸 <b>Upload Payment Proof</b>\n\n"
+        f"Payment ID: <code>{payment_id}</code>\n\n"
         f"Please send:\n"
-        f"1️⃣ **Screenshot** of payment\n"
-        f"2️⃣ **Transaction ID** in caption\n\n"
-        f"Example caption: `TXN123456789`"
+        f"1️⃣ <b>Screenshot</b> of payment\n"
+        f"2️⃣ <b>Transaction ID</b> in caption\n\n"
+        f"Example caption: <code>TXN123456789</code>",
+        parse_mode='HTML'
     )
     
     return WAITING_SCREENSHOT
@@ -355,15 +357,15 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Forward to all admins
     admin_msg = (
-        f"💰 **New Payment Request**\n\n"
-        f"**Payment ID:** `{payment_id}`\n"
-        f"**User:** {update.effective_user.first_name}\n"
-        f"**User ID:** `{user_id}`\n"
-        f"**Username:** @{update.effective_user.username}\n"
-        f"**Amount:** {amount} Rs\n"
-        f"**Plan:** {plan}\n"
-        f"**Transaction ID:** {caption}\n\n"
-        f"**Admin Commands:**\n"
+        f"💰 <b>New Payment Request</b>\n\n"
+        f"<b>Payment ID:</b> <code>{payment_id}</code>\n"
+        f"<b>User:</b> {update.effective_user.first_name}\n"
+        f"<b>User ID:</b> <code>{user_id}</code>\n"
+        f"<b>Username:</b> @{update.effective_user.username}\n"
+        f"<b>Amount:</b> {amount} Rs\n"
+        f"<b>Plan:</b> {plan}\n"
+        f"<b>Transaction ID:</b> {caption}\n\n"
+        f"<b>Admin Commands:</b>\n"
         f"/approve {payment_id} - ✅ Activate user\n"
         f"/reject {payment_id} [reason] - ❌ Reject"
     )
@@ -374,16 +376,17 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=admin_id,
                 photo=photo,
                 caption=admin_msg,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except:
             pass
     
     await update.message.reply_text(
-        f"✅ **Payment proof received!**\n\n"
-        f"Payment ID: `{payment_id}`\n"
+        f"✅ <b>Payment proof received!</b>\n\n"
+        f"Payment ID: <code>{payment_id}</code>\n"
         f"Admin will verify within 1-2 hours.\n"
-        f"You'll receive license key after approval."
+        f"You'll receive license key after approval.",
+        parse_mode='HTML'
     )
     
     context.user_data['current_payment_id'] = None
@@ -416,17 +419,17 @@ async def myplan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expiry_str = expiry_date.strftime('%d-%b-%Y %I:%M %p')
     
     msg = (
-        f"📊 **Aapka Current Plan**\n\n"
-        f"**Plan:** {plan.upper()}\n"
-        f"**License:** `{license_key}`\n"
-        f"**Expiry:** {expiry_str}\n"
-        f"**Days Left:** {days_left}\n\n"
+        f"📊 <b>Aapka Current Plan</b>\n\n"
+        f"<b>Plan:</b> {plan.upper()}\n"
+        f"<b>License:</b> <code>{license_key}</code>\n"
+        f"<b>Expiry:</b> {expiry_str}\n"
+        f"<b>Days Left:</b> {days_left}\n\n"
     )
     
     # Show upgrade options
     keyboard = []
     if plan == 'weekly':
-        msg += "**Upgrade Options:**\n"
+        msg += "<b>Upgrade Options:</b>\n"
         msg += "• Monthly (add 23 days for 200 Rs)\n"
         msg += "• Yearly (add 358 days for 1900 Rs)"
         keyboard = [
@@ -434,7 +437,7 @@ async def myplan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🎫 Upgrade to Yearly - 1900 Rs", callback_data="upgrade_weekly_yearly")]
         ]
     elif plan == 'monthly':
-        msg += "**Upgrade Options:**\n"
+        msg += "<b>Upgrade Options:</b>\n"
         msg += "• Yearly (add 335 days for 1700 Rs)"
         keyboard = [
             [InlineKeyboardButton("🎫 Upgrade to Yearly - 1700 Rs", callback_data="upgrade_monthly_yearly")]
@@ -442,10 +445,10 @@ async def myplan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         msg += "✅ Aapke paas best plan hai!"
     
-    msg += "\n\n**Renewal:**\n/renew - Same plan renew karein"
+    msg += "\n\n<b>Renewal:</b>\n/renew - Same plan renew karein"
     
     reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode='Markdown')
+    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode='HTML')
 
 async def renew_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Renew current plan"""
@@ -481,9 +484,9 @@ async def renew_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bio.seek(0)
     
     instructions = (
-        f"🔄 **Renew {plan.upper()} Plan**\n\n"
+        f"🔄 <b>Renew {plan.upper()} Plan</b>\n\n"
         f"Amount: {amount} Rs\n"
-        f"Payment ID: `{payment_id}`\n\n"
+        f"Payment ID: <code>{payment_id}</code>\n\n"
         f"Send payment to:\n"
         f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
         f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}\n\n"
@@ -493,7 +496,7 @@ async def renew_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_photo(
         photo=bio,
         caption=instructions,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     
     keyboard = [[InlineKeyboardButton("✅ I have paid", callback_data=f"paid_{payment_id}")]]
@@ -541,7 +544,6 @@ async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Save payment
         database.save_pending_payment(payment_id, user_id, amount, f"upgrade_{old_plan}_to_{new_plan}")
-        database.save_upgrade_request(user_id, old_plan, new_plan, payment_id)
         
         # Create QR code
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
@@ -555,12 +557,12 @@ async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bio.seek(0)
         
         instructions = (
-            f"🔼 **Upgrade Plan**\n\n"
-            f"**From:** {old_plan.upper()}\n"
-            f"**To:** {new_plan.upper()}\n"
-            f"**Additional Days:** {additional_days}\n"
-            f"**Amount:** {amount} Rs\n"
-            f"**Payment ID:** `{payment_id}`\n\n"
+            f"🔼 <b>Upgrade Plan</b>\n\n"
+            f"<b>From:</b> {old_plan.upper()}\n"
+            f"<b>To:</b> {new_plan.upper()}\n"
+            f"<b>Additional Days:</b> {additional_days}\n"
+            f"<b>Amount:</b> {amount} Rs\n"
+            f"<b>Payment ID:</b> <code>{payment_id}</code>\n\n"
             f"Send payment to:\n"
             f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
             f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}"
@@ -570,7 +572,7 @@ async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_photo(
             photo=bio,
             caption=instructions,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         
         keyboard = [[InlineKeyboardButton("✅ I have paid", callback_data=f"paid_{payment_id}")]]
@@ -680,13 +682,14 @@ async def approve_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=user_id,
                 text=(
                     f"السلام علیکم! 👋\n\n"
-                    f"✅ **Payment Approved!**\n\n"
-                    f"**License:** `{license_key}`\n"
-                    f"**Plan:** {plan}\n"
-                    f"**Expiry:** {expiry_str}\n\n"
+                    f"✅ <b>Payment Approved!</b>\n\n"
+                    f"<b>License:</b> <code>{license_key}</code>\n"
+                    f"<b>Plan:</b> {plan}\n"
+                    f"<b>Expiry:</b> {expiry_str}\n\n"
                     f"اب آپ bot use kar sakte hain!\n\n"
                     f"شکریہ! 🙏"
-                )
+                ),
+                parse_mode='HTML'
             )
     except:
         pass
@@ -725,11 +728,12 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                f"❌ **Payment Rejected**\n\n"
-                f"Payment ID: `{payment_id}`\n"
+                f"❌ <b>Payment Rejected</b>\n\n"
+                f"Payment ID: <code>{payment_id}</code>\n"
                 f"Reason: {reason}\n\n"
                 f"Please contact admin for more information."
-            )
+            ),
+            parse_mode='HTML'
         )
     except:
         pass
@@ -749,23 +753,25 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = database.get_all_pending_payments()
     pending_count = len(pending)
     
+    # HTML format - safe from parsing errors
     stats = (
-        f"👑 **Admin Dashboard**\n\n"
-        f"📊 **Statistics:**\n"
+        f"<b>👑 ADMIN DASHBOARD</b>\n\n"
+        f"<b>📊 STATISTICS:</b>\n"
         f"• Total Users: {total_users}\n"
         f"• Active Users: {active_users}\n"
         f"• Total Movies: {total_movies}\n"
         f"• Pending Requests: {total_requests}\n"
         f"• Pending Payments: {pending_count}\n\n"
-        f"**Pending Payments:**\n"
+        f"<b>PENDING PAYMENTS:</b>\n"
     )
     
     for p in pending[:5]:
-        stats += f"• `{p[0]}` - User {p[1]} - {p[3]} - {p[2]} Rs\n"
+        stats += f"• <code>{p[0]}</code> - User {p[1]} - {p[3]} - {p[2]} Rs\n"
     
     if pending_count > 5:
         stats += f"... and {pending_count-5} more\n"
     
     stats += "\nUse /approve PAYMENT_ID to approve"
     
-    await update.message.reply_text(stats, parse_mode='Markdown')
+    # Send with HTML parse mode
+    await update.message.reply_text(stats, parse_mode='HTML')
