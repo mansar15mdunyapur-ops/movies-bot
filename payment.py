@@ -77,6 +77,71 @@ def check_user_access(user_id):
     
     return False, "inactive"
 
+# ========== ACTIVATE COMMAND (FIXED) ==========
+async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Activate license manually"""
+    if not context.args:
+        await update.message.reply_text(
+            "❌ **Usage:** `/activate LICENSE_KEY`\n\n"
+            "Example: `/activate MOV-ABC123XYZ789`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    license_key = context.args[0]
+    user_id = update.effective_user.id
+    
+    conn = sqlite3.connect('movies.db')
+    cursor = conn.cursor()
+    
+    # Check if license exists and is active
+    cursor.execute('''
+        SELECT user_id, plan, expiry_date 
+        FROM licenses 
+        WHERE license_key = ? AND status = 'active'
+    ''', (license_key,))
+    
+    license = cursor.fetchone()
+    
+    if not license:
+        await update.message.reply_text("❌ Invalid or expired license key!")
+        conn.close()
+        return
+    
+    lic_user_id, plan, expiry_date = license
+    
+    # Check if license is already used by someone else
+    cursor.execute('SELECT license_key FROM users WHERE user_id = ?', (user_id,))
+    existing = cursor.fetchone()
+    
+    if existing and existing[0]:
+        await update.message.reply_text("❌ Aapke paas already ek active license hai!")
+        conn.close()
+        return
+    
+    # Activate user
+    cursor.execute('''
+        UPDATE users 
+        SET user_type = 'paid', 
+            payment_status = 'active',
+            expiry_date = ?,
+            license_key = ?
+        WHERE user_id = ?
+    ''', (expiry_date, license_key, user_id))
+    
+    conn.commit()
+    conn.close()
+    
+    expiry_str = datetime.strptime(expiry_date, '%Y-%m-%d %H:%M:%S.%f').strftime('%d-%b-%Y')
+    
+    await update.message.reply_text(
+        f"✅ **License Activated!**\n\n"
+        f"**Plan:** {plan}\n"
+        f"**Expiry:** {expiry_str}\n\n"
+        f"Enjoy the bot! 🎬",
+        parse_mode='Markdown'
+    )
+
 # ========== PAYMENT HANDLERS ==========
 async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /buy command"""
