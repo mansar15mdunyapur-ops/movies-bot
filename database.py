@@ -1,9 +1,7 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import sqlite3
-import json
 from datetime import datetime
 
-# Database file name
 DB_NAME = 'movies.db'
 
 def init_database():
@@ -11,7 +9,7 @@ def init_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Movies table - for storing movie files
+    # Movies table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS movies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,25 +19,12 @@ def init_database():
             quality TEXT,
             file_id TEXT,
             file_size TEXT,
-            download_link TEXT,
             added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             added_by INTEGER
         )
     ''')
     
-    # Multiple qualities table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS movie_qualities (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tmdb_id INTEGER,
-            quality TEXT,
-            file_id TEXT,
-            file_size TEXT,
-            FOREIGN KEY (tmdb_id) REFERENCES movies(tmdb_id)
-        )
-    ''')
-    
-    # Users table (updated with payment fields)
+    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -54,7 +39,7 @@ def init_database():
         )
     ''')
     
-    # License keys table
+    # Licenses table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS licenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,16 +51,20 @@ def init_database():
         )
     ''')
     
-    # Payment history table
+    # Pending payments table (SECURE PAYMENT SYSTEM)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS payments (
+        CREATE TABLE IF NOT EXISTS pending_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id TEXT UNIQUE,
             user_id INTEGER,
             amount REAL,
-            payment_method TEXT,
-            transaction_id TEXT UNIQUE,
-            payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'completed'
+            plan TEXT,
+            transaction_id TEXT,
+            screenshot_file_id TEXT,
+            status TEXT DEFAULT 'pending',
+            admin_notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            verified_at TIMESTAMP
         )
     ''')
     
@@ -84,18 +73,9 @@ def init_database():
         CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
-            tmdb_id INTEGER,
             movie_title TEXT,
             request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             status TEXT DEFAULT 'pending'
-        )
-    ''')
-    
-    # Admin settings table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
         )
     ''')
     
@@ -103,185 +83,132 @@ def init_database():
     conn.close()
     print("✅ Database initialized successfully!")
 
-# ========== MOVIE FUNCTIONS ==========
-def add_movie(tmdb_id, title, year, quality, file_id, file_size, added_by):
-    """Add a movie to database"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('''
-            INSERT OR REPLACE INTO movies 
-            (tmdb_id, title, year, quality, file_id, file_size, added_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (tmdb_id, title, year, quality, file_id, file_size, added_by))
-        
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding movie: {e}")
-        return False
-    finally:
-        conn.close()
-
-def add_movie_quality(tmdb_id, quality, file_id, file_size):
-    """Add multiple quality options for same movie"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('''
-            INSERT INTO movie_qualities (tmdb_id, quality, file_id, file_size)
-            VALUES (?, ?, ?, ?)
-        ''', (tmdb_id, quality, file_id, file_size))
-        
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding quality: {e}")
-        return False
-    finally:
-        conn.close()
-
-def get_movie_by_tmdb(tmdb_id):
-    """Get movie details by TMDb ID"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM movies WHERE tmdb_id = ?', (tmdb_id,))
-    movie = cursor.fetchone()
-    
-    # Get all qualities for this movie
-    if movie:
-        cursor.execute('SELECT quality, file_id, file_size FROM movie_qualities WHERE tmdb_id = ?', (tmdb_id,))
-        qualities = cursor.fetchall()
-        
-        conn.close()
-        return {'movie': movie, 'qualities': qualities}
-    
-    conn.close()
-    return None
-
-def search_movies_db(query):
-    """Search movies in database by title"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT tmdb_id, title, year FROM movies 
-        WHERE title LIKE ? ORDER BY year DESC
-    ''', (f'%{query}%',))
-    
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
 # ========== USER FUNCTIONS ==========
 def add_user(user_id, username, first_name):
-    """Add or update user"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     cursor.execute('''
         INSERT OR IGNORE INTO users (user_id, username, first_name)
         VALUES (?, ?, ?)
     ''', (user_id, username, first_name))
-    
     conn.commit()
     conn.close()
-
-def increment_user_requests(user_id):
-    """Increment user request count"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE users SET total_requests = total_requests + 1 
-        WHERE user_id = ?
-    ''', (user_id,))
-    
-    conn.commit()
-    conn.close()
-
-def get_user_stats(user_id):
-    """Get user statistics"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-    user = cursor.fetchone()
-    
-    conn.close()
-    return user
-
-# ========== REQUEST FUNCTIONS ==========
-def add_request(user_id, tmdb_id, movie_title):
-    """Add a movie request"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO requests (user_id, tmdb_id, movie_title)
-        VALUES (?, ?, ?)
-    ''', (user_id, tmdb_id, movie_title))
-    
-    conn.commit()
-    conn.close()
-
-def get_pending_requests():
-    """Get all pending requests"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT * FROM requests WHERE status = 'pending' 
-        ORDER BY request_date DESC
-    ''')
-    
-    requests = cursor.fetchall()
-    conn.close()
-    return requests
-
-def update_request_status(request_id, status):
-    """Update request status"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('UPDATE requests SET status = ? WHERE id = ?', (status, request_id))
-    conn.commit()
-    conn.close()
-
-# ========== STATS FUNCTIONS ==========
-def get_total_movies():
-    """Get total movies count"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) FROM movies')
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count
 
 def get_total_users():
-    """Get total users count"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     cursor.execute('SELECT COUNT(*) FROM users')
     count = cursor.fetchone()[0]
     conn.close()
     return count
 
-def get_total_requests():
-    """Get total requests count"""
+def get_total_movies():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
+    cursor.execute('SELECT COUNT(*) FROM movies')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def get_total_requests():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
     cursor.execute('SELECT COUNT(*) FROM requests')
     count = cursor.fetchone()[0]
     conn.close()
     return count
 
-# Initialize database when this file is run
+def get_pending_requests():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM requests WHERE status = "pending" ORDER BY request_date DESC')
+    requests = cursor.fetchall()
+    conn.close()
+    return requests
+
+def add_request(user_id, movie_title):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO requests (user_id, movie_title)
+        VALUES (?, ?)
+    ''', (user_id, movie_title))
+    conn.commit()
+    conn.close()
+
+# ========== PAYMENT FUNCTIONS ==========
+def save_pending_payment(payment_id, user_id, amount, plan):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO pending_payments (payment_id, user_id, amount, plan, status)
+        VALUES (?, ?, ?, ?, 'pending')
+    ''', (payment_id, user_id, amount, plan))
+    conn.commit()
+    conn.close()
+
+def update_payment_with_screenshot(payment_id, screenshot_file_id, transaction_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE pending_payments 
+        SET screenshot_file_id = ?, transaction_id = ?
+        WHERE payment_id = ? AND status = 'pending'
+    ''', (screenshot_file_id, transaction_id, payment_id))
+    conn.commit()
+    conn.close()
+
+def get_pending_payment(payment_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id, plan FROM pending_payments WHERE payment_id = ? AND status = "pending"', (payment_id,))
+    payment = cursor.fetchone()
+    conn.close()
+    return payment
+
+def approve_payment(payment_id, admin_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE pending_payments 
+        SET status = 'approved', verified_at = CURRENT_TIMESTAMP, admin_notes = ?
+        WHERE payment_id = ?
+    ''', (f"Approved by admin {admin_id}", payment_id))
+    conn.commit()
+    conn.close()
+
+def reject_payment(payment_id, admin_id, reason):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE pending_payments 
+        SET status = 'rejected', admin_notes = ?
+        WHERE payment_id = ?
+    ''', (f"Rejected by admin {admin_id}: {reason}", payment_id))
+    conn.commit()
+    conn.close()
+
+def save_license(license_key, user_id, expiry_days):
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    expiry_date = datetime.now() + timedelta(days=expiry_days)
+    
+    cursor.execute('''
+        INSERT INTO licenses (license_key, user_id, expiry_date, status)
+        VALUES (?, ?, ?, 'active')
+    ''', (license_key, user_id, expiry_date))
+    
+    cursor.execute('''
+        UPDATE users 
+        SET user_type = 'paid', payment_status = 'active', expiry_date = ?, license_key = ?
+        WHERE user_id = ?
+    ''', (expiry_date, license_key, user_id))
+    
+    conn.commit()
+    conn.close()
+    return license_key
+
 if __name__ == '__main__':
     init_database()
