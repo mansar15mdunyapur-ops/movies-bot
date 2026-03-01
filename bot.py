@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 import database
 import payment
+import admin  # <-- IMPORTANT: Admin module add kiya
 
 # Configuration
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -75,37 +76,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.add_user(user.id, user.username, user.first_name)
     
     welcome_msg = (
-        f"السلام علیکم **{user.first_name}!** ورحمتہ اللہ وبرکاتہ\n\n"
-        "🎬 **Movie Bot** mein khush amdeed!\n\n"
-        "**✨ Features:**\n"
+        f"السلام علیکم <b>{user.first_name}!</b> ورحمتہ اللہ وبرکاتہ\n\n"
+        "🎬 <b>Movie Bot</b> mein khush amdeed!\n\n"
+        "<b>✨ Features:</b>\n"
         "• Movie search - Kisi bhi movie ka naam likho\n"
         "• Movie details - Rating, cast, story, poster\n"
         "• Subscription - /buy se lo\n\n"
-        "**📌 Commands:**\n"
+        "<b>📌 Commands:</b>\n"
         "/movies - Collection dekhein\n"
         "/buy - Subscription plans\n"
         "/myplan - Apna plan check karein\n"
         "/help - Madad\n\n"
-        "**Bas movie ka naam likho!** 🔍"
+        "<b>Bas movie ka naam likho!</b> 🔍"
     )
-    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    await update.message.reply_text(welcome_msg, parse_mode='HTML')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
-        "📚 **Madad** 📚\n\n"
-        "**🎯 Movie Search:**\n"
+        "📚 <b>Madad</b> 📚\n\n"
+        "<b>🎯 Movie Search:</b>\n"
         "• Direct naam likho - Jaise 'Avengers', '3 Idiots'\n\n"
-        "**📋 Commands:**\n"
+        "<b>📋 Commands:</b>\n"
         "/movies - Saari available movies\n"
         "/buy - Subscription plans\n"
         "/myplan - Current plan details\n"
         "/renew - Plan renew karein\n"
         "/activate [key] - License activate karo\n"
         "/help - Yeh message\n\n"
-        "**💳 Payment Issues?**\n"
+        "<b>💳 Payment Issues?</b>\n"
         "Contact admin: @YourAdminUsername"
     )
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    await update.message.reply_text(help_text, parse_mode='HTML')
 
 async def movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     results = database.search_movies_db("")
@@ -114,12 +115,12 @@ async def movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 Filhaal koi movies nahi hain collection mein.")
         return
     
-    msg = "🎥 **Hamari Collection:**\n\n"
+    msg = "🎥 <b>Hamari Collection:</b>\n\n"
     for tmdb_id, title, year in results[:10]:
         msg += f"• {title} ({year})\n"
     
     msg += f"\nTotal: {len(results)} movies"
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg, parse_mode='HTML')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.message.text.strip()
@@ -152,10 +153,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"🔍 **'{query}' ke liye {len(results)} results:**\n\n"
+        f"🔍 <b>'{query}' ke liye {len(results)} results:</b>\n\n"
         "Details ke liye select karo:",
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,12 +198,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             overview = overview[:300] + '...'
         
         info_msg = (
-            f"🎬 **{title}** ({year})\n\n"
-            f"⭐ **Rating:** {rating}/10\n"
-            f"⏱️ **Runtime:** {runtime} min\n"
-            f"🎭 **Genres:** {genres}\n"
-            f"👥 **Cast:** {cast_text}\n\n"
-            f"📝 **Story:**\n{overview}\n\n"
+            f"🎬 <b>{title}</b> ({year})\n\n"
+            f"⭐ <b>Rating:</b> {rating}/10\n"
+            f"⏱️ <b>Runtime:</b> {runtime} min\n"
+            f"🎭 <b>Genres:</b> {genres}\n"
+            f"👥 <b>Cast:</b> {cast_text}\n\n"
+            f"📝 <b>Story:</b>\n{overview}\n\n"
         )
         
         keyboard = [[InlineKeyboardButton("📝 Request This Movie", callback_data=f"req_{title}")]]
@@ -217,10 +218,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo=poster_url,
                 caption=info_msg,
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
-            await query.message.reply_text(info_msg, reply_markup=reply_markup, parse_mode='Markdown')
+            await query.message.reply_text(info_msg, reply_markup=reply_markup, parse_mode='HTML')
     
     elif action == "req":
         movie_name = '_'.join(data[1:])
@@ -290,6 +291,25 @@ def main():
     app.add_handler(CommandHandler("approve", payment.approve_payment))
     app.add_handler(CommandHandler("reject", payment.reject_payment))
     
+    # ========== ADD MOVIE COMMAND (FIX) ==========
+    app.add_handler(CommandHandler("addmovie", admin.add_movie_start))
+    
+    # Add conversation handler for add movie process
+    from admin import ADD_MOVIE_TMDB, ADD_MOVIE_QUALITY, ADD_MOVIE_FILE, ADD_MOVIE_SIZE
+    
+    add_movie_conv = ConversationHandler(
+        entry_points=[CommandHandler('addmovie', admin.add_movie_start)],
+        states={
+            ADD_MOVIE_TMDB: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin.add_movie_tmdb)],
+            ADD_MOVIE_QUALITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin.add_movie_quality)],
+            ADD_MOVIE_FILE: [MessageHandler(filters.VIDEO, admin.add_movie_file)],
+            ADD_MOVIE_SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin.add_movie_size)],
+        },
+        fallbacks=[CommandHandler('cancel', admin.cancel)]
+    )
+    app.add_handler(add_movie_conv)
+    # ==============================================
+    
     # Callback handlers
     app.add_handler(CallbackQueryHandler(payment.payment_callback, pattern='^buy_'))
     app.add_handler(CallbackQueryHandler(payment.paid_callback, pattern='^paid_'))
@@ -314,6 +334,9 @@ def main():
     
     print("🎬 Movie Bot starting...")
     print("✅ Database connected!")
+    print(f"📊 Total movies in DB: {database.get_total_movies()}")
+    print(f"👥 Total users: {database.get_total_users()}")
+    print(f"📝 Total requests: {database.get_total_requests()}")
     print("🚀 Bot is running!")
     
     # Start polling
