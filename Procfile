@@ -1,1 +1,1 @@
-web: python -m railway_bot
+web: python bot.py
