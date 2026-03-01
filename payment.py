@@ -24,9 +24,6 @@ PAYMENT_METHODS = {
     'easypaisa': '03424546056',  # Apna EasyPaisa number
 }
 
-# Payment channel/group for admin notifications
-PAYMENT_CHANNEL_ID = -100123456789  # <-- Apna private channel ID daalo (optional)
-
 # Prices
 PRICES = {
     '1day': 0,
@@ -91,7 +88,8 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if has_access:
         await update.message.reply_text(
             "✅ **Aap already active user hain!**\n\n"
-            "Aap bot use kar sakte hain.",
+            "Aap bot use kar sakte hain.\n"
+            "Apna plan check karne ke liye /myplan use karein.",
             parse_mode='Markdown'
         )
         return
@@ -263,7 +261,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payment_id = context.user_data.get('current_payment_id')
     
     if not payment_id:
-        return
+        return ConversationHandler.END
     
     if not update.message.photo:
         await update.message.reply_text("❌ Please send a screenshot photo!")
@@ -273,7 +271,10 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1].file_id
     caption = update.message.caption or "No transaction ID"
     
-    # Get pending payment
+    # Save screenshot info
+    database.update_payment_with_screenshot(payment_id, photo, caption)
+    
+    # Get payment details
     conn = sqlite3.connect('movies.db')
     cursor = conn.cursor()
     cursor.execute('SELECT user_id, amount, plan FROM pending_payments WHERE payment_id = ?', (payment_id,))
@@ -287,10 +288,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id, amount, plan = payment
     
-    # Save screenshot info
-    database.update_payment_with_screenshot(payment_id, photo, caption)
-    
-    # Forward to admin
+    # Forward to all admins
     admin_msg = (
         f"💰 **New Payment Request**\n\n"
         f"**Payment ID:** `{payment_id}`\n"
@@ -305,7 +303,6 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"/reject {payment_id} [reason] - ❌ Reject"
     )
     
-    # Send to all admins
     for admin_id in ADMIN_IDS:
         try:
             await context.bot.send_photo(
@@ -332,9 +329,192 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled!")
     return ConversationHandler.END
 
+# ========== MY PLAN COMMAND ==========
+async def myplan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check current plan and upgrade options"""
+    user_id = update.effective_user.id
+    
+    license_info = database.get_user_license(user_id)
+    
+    if not license_info:
+        await update.message.reply_text(
+            "❌ Aapke paas koi active plan nahi hai!\n"
+            "/buy se naya plan lein."
+        )
+        return
+    
+    plan, expiry, license_key = license_info
+    expiry_date = datetime.strptime(expiry, '%Y-%m-%d %H:%M:%S.%f')
+    days_left = (expiry_date - datetime.now()).days
+    
+    # Format expiry date
+    expiry_str = expiry_date.strftime('%d-%b-%Y %I:%M %p')
+    
+    msg = (
+        f"📊 **Aapka Current Plan**\n\n"
+        f"**Plan:** {plan.upper()}\n"
+        f"**License:** `{license_key}`\n"
+        f"**Expiry:** {expiry_str}\n"
+        f"**Days Left:** {days_left}\n\n"
+    )
+    
+    # Show upgrade options
+    keyboard = []
+    if plan == 'weekly':
+        msg += "**Upgrade Options:**\n"
+        msg += "• Monthly (add 23 days for 200 Rs)\n"
+        msg += "• Yearly (add 358 days for 1900 Rs)"
+        keyboard = [
+            [InlineKeyboardButton("📆 Upgrade to Monthly - 200 Rs", callback_data="upgrade_weekly_monthly")],
+            [InlineKeyboardButton("🎫 Upgrade to Yearly - 1900 Rs", callback_data="upgrade_weekly_yearly")]
+        ]
+    elif plan == 'monthly':
+        msg += "**Upgrade Options:**\n"
+        msg += "• Yearly (add 335 days for 1700 Rs)"
+        keyboard = [
+            [InlineKeyboardButton("🎫 Upgrade to Yearly - 1700 Rs", callback_data="upgrade_monthly_yearly")]
+        ]
+    else:
+        msg += "✅ Aapke paas best plan hai!"
+    
+    msg += "\n\n**Renewal:**\n/renew - Same plan renew karein"
+    
+    reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def renew_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Renew current plan"""
+    user_id = update.effective_user.id
+    
+    license_info = database.get_user_license(user_id)
+    
+    if not license_info:
+        await update.message.reply_text("❌ Pehle /buy se plan lein.")
+        return
+    
+    plan, expiry, license_key = license_info
+    amount = PRICES[plan]
+    
+    # Generate payment ID
+    payment_id = generate_payment_id()
+    context.user_data['payment_plan'] = plan
+    context.user_data['payment_id'] = payment_id
+    context.user_data['renewal'] = True
+    context.user_data['old_license'] = license_key
+    
+    database.save_pending_payment(payment_id, user_id, amount, plan)
+    
+    # Create QR code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr_data = f"MOVIEBOT|{payment_id}|{amount}|PKR|RENEW"
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = BytesIO()
+    img.save(bio, 'PNG')
+    bio.seek(0)
+    
+    instructions = (
+        f"🔄 **Renew {plan.upper()} Plan**\n\n"
+        f"Amount: {amount} Rs\n"
+        f"Payment ID: `{payment_id}`\n\n"
+        f"Send payment to:\n"
+        f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
+        f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}\n\n"
+        f"After payment, click 'I have paid'"
+    )
+    
+    await update.message.reply_photo(
+        photo=bio,
+        caption=instructions,
+        parse_mode='Markdown'
+    )
+    
+    keyboard = [[InlineKeyboardButton("✅ I have paid", callback_data=f"paid_{payment_id}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Click after payment:", reply_markup=reply_markup)
+
+async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle upgrade button clicks"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    # Parse upgrade request
+    if data.startswith('upgrade_'):
+        parts = data.split('_')
+        old_plan = parts[1]
+        new_plan = parts[2]
+        
+        # Calculate additional cost
+        if old_plan == 'weekly' and new_plan == 'monthly':
+            amount = 200
+            additional_days = 23
+        elif old_plan == 'weekly' and new_plan == 'yearly':
+            amount = 1900
+            additional_days = 358
+        elif old_plan == 'monthly' and new_plan == 'yearly':
+            amount = 1700
+            additional_days = 335
+        else:
+            await query.edit_message_text("❌ Invalid upgrade option!")
+            return
+        
+        user_id = query.from_user.id
+        payment_id = generate_payment_id()
+        
+        # Store upgrade info
+        context.user_data['upgrade'] = {
+            'old_plan': old_plan,
+            'new_plan': new_plan,
+            'amount': amount,
+            'additional_days': additional_days,
+            'payment_id': payment_id
+        }
+        
+        # Save payment
+        database.save_pending_payment(payment_id, user_id, amount, f"upgrade_{old_plan}_to_{new_plan}")
+        database.save_upgrade_request(user_id, old_plan, new_plan, payment_id)
+        
+        # Create QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr_data = f"UPGRADE|{payment_id}|{amount}|PKR|{old_plan}2{new_plan}"
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        bio = BytesIO()
+        img.save(bio, 'PNG')
+        bio.seek(0)
+        
+        instructions = (
+            f"🔼 **Upgrade Plan**\n\n"
+            f"**From:** {old_plan.upper()}\n"
+            f"**To:** {new_plan.upper()}\n"
+            f"**Additional Days:** {additional_days}\n"
+            f"**Amount:** {amount} Rs\n"
+            f"**Payment ID:** `{payment_id}`\n\n"
+            f"Send payment to:\n"
+            f"JazzCash: {PAYMENT_METHODS['jazzcash']}\n"
+            f"EasyPaisa: {PAYMENT_METHODS['easypaisa']}"
+        )
+        
+        await query.message.delete()
+        await query.message.reply_photo(
+            photo=bio,
+            caption=instructions,
+            parse_mode='Markdown'
+        )
+        
+        keyboard = [[InlineKeyboardButton("✅ I have paid", callback_data=f"paid_{payment_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text("Click after payment:", reply_markup=reply_markup)
+
 # ========== ADMIN APPROVAL COMMANDS ==========
 async def approve_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin approve payment"""
+    """Admin approve payment (with renewal/upgrade support)"""
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ Aap admin nahi hain!")
         return
@@ -344,11 +524,17 @@ async def approve_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     payment_id = context.args[0]
+    admin_id = update.effective_user.id
     
-    # Get payment details
     conn = sqlite3.connect('movies.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT user_id, plan FROM pending_payments WHERE payment_id = ? AND status = "pending"', (payment_id,))
+    
+    # Get payment details
+    cursor.execute('''
+        SELECT user_id, plan FROM pending_payments 
+        WHERE payment_id = ? AND status = 'pending'
+    ''', (payment_id,))
+    
     payment = cursor.fetchone()
     
     if not payment:
@@ -358,33 +544,85 @@ async def approve_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id, plan = payment
     
-    # Generate license
-    license_key = generate_license_key()
-    days = 7 if plan == 'weekly' else 30 if plan == 'monthly' else 365
+    # Check if it's an upgrade
+    if plan.startswith('upgrade_'):
+        # Upgrade case
+        parts = plan.split('_')
+        old_plan = parts[1]
+        new_plan = parts[2]
+        
+        # Calculate additional days
+        if old_plan == 'weekly' and new_plan == 'monthly':
+            additional_days = 23
+        elif old_plan == 'weekly' and new_plan == 'yearly':
+            additional_days = 358
+        elif old_plan == 'monthly' and new_plan == 'yearly':
+            additional_days = 335
+        else:
+            additional_days = 0
+        
+        # Extend license
+        new_expiry = database.extend_license(user_id, additional_days)
+        
+        if new_expiry:
+            # Update plan in licenses
+            cursor.execute('''
+                UPDATE licenses SET plan = ? WHERE user_id = ? AND status = 'active'
+            ''', (new_plan, user_id))
+            
+            license_info = database.get_user_license(user_id)
+            license_key = license_info[2] if license_info else "Unknown"
+            
+            message = f"✅ Plan upgraded from {old_plan} to {new_plan}\nNew expiry: {new_expiry}"
+        else:
+            message = "❌ No active license found!"
     
-    # Save license
-    database.save_license(license_key, user_id, days)
+    elif plan in ['weekly', 'monthly', 'yearly', '1day']:
+        # Check if renewal (user already has license)
+        cursor.execute('SELECT license_key FROM licenses WHERE user_id = ? AND status = "active"', (user_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Renewal case
+            days = 7 if plan == 'weekly' else 30 if plan == 'monthly' else 365 if plan == 'yearly' else 1
+            new_expiry = database.extend_license(user_id, days)
+            license_key = existing[0]
+            message = f"✅ License renewed! New expiry: {new_expiry}"
+        else:
+            # New license
+            license_key = generate_license_key()
+            days = 7 if plan == 'weekly' else 30 if plan == 'monthly' else 365 if plan == 'yearly' else 1
+            database.save_license(license_key, user_id, plan, days)
+            message = f"✅ New license created: {license_key}"
+    else:
+        message = "Unknown plan type"
     
     # Update payment status
-    cursor.execute('UPDATE pending_payments SET status = "approved" WHERE payment_id = ?', (payment_id,))
+    database.approve_payment(payment_id, admin_id)
     conn.commit()
     conn.close()
     
-    await update.message.reply_text(f"✅ User {user_id} activated with license: {license_key}")
+    await update.message.reply_text(f"✅ Payment approved!\n{message}")
     
     # Notify user
     try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ **Payment Approved!**\n\n"
-                 f"Assalamualaikum! 👋\n"
-                 f"Your payment has been verified.\n\n"
-                 f"**License Key:** `{license_key}`\n"
-                 f"**Plan:** {plan}\n"
-                 f"**Valid for:** {days} days\n\n"
-                 f"Use /activate {license_key} to start using the bot!\n\n"
-                 f"Shukriya! 🙏"
-        )
+        license_info = database.get_user_license(user_id)
+        if license_info:
+            plan, expiry, license_key = license_info
+            expiry_str = datetime.strptime(expiry, '%Y-%m-%d %H:%M:%S.%f').strftime('%d-%b-%Y')
+            
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"السلام علیکم! 👋\n\n"
+                    f"✅ **Payment Approved!**\n\n"
+                    f"**License:** `{license_key}`\n"
+                    f"**Plan:** {plan}\n"
+                    f"**Expiry:** {expiry_str}\n\n"
+                    f"اب آپ bot use kar sakte hain!\n\n"
+                    f"شکریہ! 🙏"
+                )
+            )
     except:
         pass
 
@@ -401,23 +639,19 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payment_id = context.args[0]
     reason = ' '.join(context.args[1:]) if len(context.args) > 1 else "No reason specified"
     
-    # Get user_id
     conn = sqlite3.connect('movies.db')
     cursor = conn.cursor()
     cursor.execute('SELECT user_id FROM pending_payments WHERE payment_id = ? AND status = "pending"', (payment_id,))
     payment = cursor.fetchone()
+    conn.close()
     
     if not payment:
         await update.message.reply_text("❌ No pending payment found!")
-        conn.close()
         return
     
     user_id = payment[0]
     
-    # Update payment status
-    cursor.execute('UPDATE pending_payments SET status = "rejected" WHERE payment_id = ?', (payment_id,))
-    conn.commit()
-    conn.close()
+    database.reject_payment(payment_id, update.effective_user.id, reason)
     
     await update.message.reply_text(f"❌ Payment {payment_id} rejected")
     
@@ -425,10 +659,12 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"❌ **Payment Rejected**\n\n"
-                 f"Payment ID: `{payment_id}`\n"
-                 f"Reason: {reason}\n\n"
-                 f"Please contact admin for more information."
+            text=(
+                f"❌ **Payment Rejected**\n\n"
+                f"Payment ID: `{payment_id}`\n"
+                f"Reason: {reason}\n\n"
+                f"Please contact admin for more information."
+            )
         )
     except:
         pass
@@ -440,95 +676,31 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Aap admin nahi hain!")
         return
     
-    keyboard = [
-        [InlineKeyboardButton("📊 Stats", callback_data="admin_stats")],
-        [InlineKeyboardButton("📝 Pending Payments", callback_data="admin_pending")],
-        [InlineKeyboardButton("📋 Pending Requests", callback_data="admin_requests")],
-        [InlineKeyboardButton("👥 Users", callback_data="admin_users")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    total_users = database.get_total_users()
+    total_movies = database.get_total_movies()
+    total_requests = database.get_total_requests()
+    active_users = database.get_active_license_count()
     
-    await update.message.reply_text(
-        "👑 **Admin Panel**\n\nChoose option:",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+    pending = database.get_all_pending_payments()
+    pending_count = len(pending)
+    
+    stats = (
+        f"👑 **Admin Dashboard**\n\n"
+        f"📊 **Statistics:**\n"
+        f"• Total Users: {total_users}\n"
+        f"• Active Users: {active_users}\n"
+        f"• Total Movies: {total_movies}\n"
+        f"• Pending Requests: {total_requests}\n"
+        f"• Pending Payments: {pending_count}\n\n"
+        f"**Pending Payments:**\n"
     )
-
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle admin callbacks"""
-    query = update.callback_query
-    await query.answer()
     
-    if query.data == "admin_stats":
-        total_users = database.get_total_users()
-        total_movies = database.get_total_movies()
-        total_requests = database.get_total_requests()
-        
-        conn = sqlite3.connect('movies.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM pending_payments WHERE status = "pending"')
-        pending_payments = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT COUNT(*) FROM licenses WHERE status = "active"')
-        active_users = cursor.fetchone()[0]
-        conn.close()
-        
-        stats = (
-            f"📊 **Bot Statistics**\n\n"
-            f"👥 Total Users: {total_users}\n"
-            f"✅ Active Users: {active_users}\n"
-            f"🎬 Total Movies: {total_movies}\n"
-            f"📝 Pending Requests: {total_requests}\n"
-            f"💰 Pending Payments: {pending_payments}"
-        )
-        await query.edit_message_text(stats, parse_mode='Markdown')
+    for p in pending[:5]:
+        stats += f"• `{p[0]}` - User {p[1]} - {p[3]} - {p[2]} Rs\n"
     
-    elif query.data == "admin_pending":
-        conn = sqlite3.connect('movies.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT payment_id, user_id, amount, plan, created_at 
-            FROM pending_payments WHERE status = "pending" 
-            ORDER BY created_at DESC LIMIT 10
-        ''')
-        payments = cursor.fetchall()
-        conn.close()
-        
-        if not payments:
-            await query.edit_message_text("📭 No pending payments!")
-            return
-        
-        msg = "💰 **Pending Payments:**\n\n"
-        for p in payments:
-            msg += f"• `{p[0]}` - User: {p[1]} - {p[3]} - {p[2]} Rs\n"
-        
-        await query.edit_message_text(msg, parse_mode='Markdown')
-
-async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Activate license"""
-    if not context.args:
-        await update.message.reply_text("Usage: /activate LICENSE_KEY")
-        return
+    if pending_count > 5:
+        stats += f"... and {pending_count-5} more\n"
     
-    license_key = context.args[0]
-    user_id = update.effective_user.id
+    stats += "\nUse /approve PAYMENT_ID to approve"
     
-    conn = sqlite3.connect('movies.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM licenses WHERE license_key = ? AND status = "active"', (license_key,))
-    license = cursor.fetchone()
-    
-    if license:
-        cursor.execute('''
-            UPDATE users 
-            SET user_type = 'paid', payment_status = 'active', license_key = ?
-            WHERE user_id = ?
-        ''', (license_key, user_id))
-        
-        conn.commit()
-        await update.message.reply_text("✅ License activated! Enjoy the bot!")
-    else:
-        await update.message.reply_text("❌ Invalid or used license key!")
-    
-    conn.close()
+    await update.message.reply_text(stats, parse_mode='Markdown')
