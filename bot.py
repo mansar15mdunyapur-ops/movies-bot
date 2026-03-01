@@ -10,11 +10,10 @@ from telegram.ext import (
 )
 import database
 import payment
-from payment import WAITING_SCREENSHOT
 
 # Configuration
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-TMDB_API_KEY = os.environ.get('TMDB_API_KEY')  # 2e822b46b04411667ee5a3723c78e674
+TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
 
 # Initialize database
 database.init_database()
@@ -85,6 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**📌 Commands:**\n"
         "/movies - Collection dekhein\n"
         "/buy - Subscription plans\n"
+        "/myplan - Apna plan check karein\n"
         "/help - Madad\n\n"
         "**Bas movie ka naam likho!** 🔍"
     )
@@ -98,6 +98,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**📋 Commands:**\n"
         "/movies - Saari available movies\n"
         "/buy - Subscription plans\n"
+        "/myplan - Current plan details\n"
+        "/renew - Plan renew karein\n"
         "/activate [key] - License activate karo\n"
         "/help - Yeh message\n\n"
         "**💳 Payment Issues?**\n"
@@ -165,12 +167,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if action == "info":
         movie_id = int(data[1])
-        await query.edit_message_text("⏳ Movie details la raha hoon...")
+        
+        # Send loading message
+        loading_msg = await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text="⏳ Movie details la raha hoon..."
+        )
         
         movie = get_tmdb_details(movie_id)
         
         if not movie:
-            await query.edit_message_text("❌ Details nahi mil sakin!")
+            await loading_msg.edit_text("❌ Details nahi mil sakin!")
             return
         
         title = movie['title']
@@ -201,9 +208,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("📝 Request This Movie", callback_data=f"req_{title}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Delete loading message
+        await loading_msg.delete()
+        
         if movie.get('poster_path'):
             poster_url = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
-            await query.message.delete()
             await query.message.reply_photo(
                 photo=poster_url,
                 caption=info_msg,
@@ -211,14 +220,37 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
         else:
-            await query.edit_message_text(info_msg, reply_markup=reply_markup, parse_mode='Markdown')
+            await query.message.reply_text(info_msg, reply_markup=reply_markup, parse_mode='Markdown')
     
     elif action == "req":
         movie_name = '_'.join(data[1:])
         database.add_request(query.from_user.id, movie_name)
-        await query.edit_message_text(f"✅ Request added: {movie_name}")
+        
+        # Check if message is photo or text
+        try:
+            if query.message.photo:
+                await context.bot.send_message(
+                    chat_id=query.from_user.id,
+                    text=f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
+                )
+                await query.message.delete()
+            else:
+                await query.edit_message_text(
+                    f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
+                )
+        except:
+            await context.bot.send_message(
+                chat_id=query.from_user.id,
+                text=f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
+            )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors"""
+    # Ignore specific errors
+    error_str = str(context.error)
+    if "There is no text in the message to edit" in error_str:
+        return
+    
     logger.error(f"Update {update} caused error {context.error}")
     try:
         if update and update.effective_message:
@@ -249,6 +281,8 @@ def main():
     
     # Payment commands
     app.add_handler(CommandHandler("buy", payment.buy_command))
+    app.add_handler(CommandHandler("myplan", payment.myplan_command))
+    app.add_handler(CommandHandler("renew", payment.renew_command))
     app.add_handler(CommandHandler("activate", payment.activate_command))
     
     # Admin commands
@@ -259,14 +293,14 @@ def main():
     # Callback handlers
     app.add_handler(CallbackQueryHandler(payment.payment_callback, pattern='^buy_'))
     app.add_handler(CallbackQueryHandler(payment.paid_callback, pattern='^paid_'))
-    app.add_handler(CallbackQueryHandler(payment.admin_callback, pattern='^admin_'))
+    app.add_handler(CallbackQueryHandler(payment.upgrade_callback, pattern='^upgrade_'))
     app.add_handler(CallbackQueryHandler(button_callback))
     
     # Conversation handler for payment screenshots
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(payment.paid_callback, pattern='^paid_')],
         states={
-            WAITING_SCREENSHOT: [MessageHandler(filters.PHOTO, payment.handle_screenshot)]
+            payment.WAITING_SCREENSHOT: [MessageHandler(filters.PHOTO, payment.handle_screenshot)]
         },
         fallbacks=[CommandHandler("cancel", payment.cancel)]
     )
@@ -282,6 +316,7 @@ def main():
     print("✅ Database connected!")
     print("🚀 Bot is running!")
     
+    # Start polling
     app.run_polling()
 
 if __name__ == '__main__':
