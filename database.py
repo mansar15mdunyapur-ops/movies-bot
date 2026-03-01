@@ -45,6 +45,7 @@ def init_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             license_key TEXT UNIQUE,
             user_id INTEGER,
+            plan TEXT,
             created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expiry_date TIMESTAMP,
             status TEXT DEFAULT 'active'
@@ -65,6 +66,19 @@ def init_database():
             admin_notes TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             verified_at TIMESTAMP
+        )
+    ''')
+    
+    # Upgrade requests table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS upgrade_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            old_plan TEXT,
+            new_plan TEXT,
+            payment_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -94,6 +108,14 @@ def add_user(user_id, username, first_name):
     conn.commit()
     conn.close()
 
+def get_user(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
 def get_total_users():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -102,6 +124,7 @@ def get_total_users():
     conn.close()
     return count
 
+# ========== MOVIE FUNCTIONS ==========
 def get_total_movies():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -110,22 +133,18 @@ def get_total_movies():
     conn.close()
     return count
 
-def get_total_requests():
+def search_movies_db(query):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM requests')
-    count = cursor.fetchone()[0]
+    cursor.execute('''
+        SELECT tmdb_id, title, year FROM movies 
+        WHERE title LIKE ? ORDER BY year DESC
+    ''', (f'%{query}%',))
+    results = cursor.fetchall()
     conn.close()
-    return count
+    return results
 
-def get_pending_requests():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM requests WHERE status = "pending" ORDER BY request_date DESC')
-    requests = cursor.fetchall()
-    conn.close()
-    return requests
-
+# ========== REQUEST FUNCTIONS ==========
 def add_request(user_id, movie_title):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -136,14 +155,30 @@ def add_request(user_id, movie_title):
     conn.commit()
     conn.close()
 
+def get_pending_requests():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM requests WHERE status = "pending" ORDER BY request_date DESC')
+    requests = cursor.fetchall()
+    conn.close()
+    return requests
+
+def get_total_requests():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM requests WHERE status = "pending"')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 # ========== PAYMENT FUNCTIONS ==========
-def save_pending_payment(payment_id, user_id, amount, plan):
+def save_pending_payment(payment_id, user_id, amount, plan, transaction_id=None, screenshot_id=None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO pending_payments (payment_id, user_id, amount, plan, status)
-        VALUES (?, ?, ?, ?, 'pending')
-    ''', (payment_id, user_id, amount, plan))
+        INSERT INTO pending_payments (payment_id, user_id, amount, plan, transaction_id, screenshot_file_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    ''', (payment_id, user_id, amount, plan, transaction_id, screenshot_id))
     conn.commit()
     conn.close()
 
@@ -165,6 +200,18 @@ def get_pending_payment(payment_id):
     payment = cursor.fetchone()
     conn.close()
     return payment
+
+def get_all_pending_payments():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT payment_id, user_id, amount, plan, created_at 
+        FROM pending_payments WHERE status = "pending" 
+        ORDER BY created_at DESC
+    ''')
+    payments = cursor.fetchall()
+    conn.close()
+    return payments
 
 def approve_payment(payment_id, admin_id):
     conn = sqlite3.connect(DB_NAME)
@@ -188,17 +235,17 @@ def reject_payment(payment_id, admin_id, reason):
     conn.commit()
     conn.close()
 
-def save_license(license_key, user_id, expiry_days):
+def save_license(license_key, user_id, plan, days):
     from datetime import datetime, timedelta
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    expiry_date = datetime.now() + timedelta(days=expiry_days)
+    expiry_date = datetime.now() + timedelta(days=days)
     
     cursor.execute('''
-        INSERT INTO licenses (license_key, user_id, expiry_date, status)
-        VALUES (?, ?, ?, 'active')
-    ''', (license_key, user_id, expiry_date))
+        INSERT INTO licenses (license_key, user_id, plan, expiry_date, status)
+        VALUES (?, ?, ?, ?, 'active')
+    ''', (license_key, user_id, plan, expiry_date))
     
     cursor.execute('''
         UPDATE users 
@@ -209,6 +256,64 @@ def save_license(license_key, user_id, expiry_days):
     conn.commit()
     conn.close()
     return license_key
+
+def get_user_license(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT plan, expiry_date, license_key 
+        FROM licenses 
+        WHERE user_id = ? AND status = 'active'
+    ''', (user_id,))
+    license = cursor.fetchone()
+    conn.close()
+    return license
+
+def extend_license(user_id, additional_days):
+    from datetime import datetime, timedelta
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT expiry_date FROM licenses WHERE user_id = ? AND status = "active"', (user_id,))
+    current = cursor.fetchone()
+    
+    if current:
+        current_expiry = datetime.strptime(current[0], '%Y-%m-%d %H:%M:%S.%f')
+        new_expiry = current_expiry + timedelta(days=additional_days)
+        
+        cursor.execute('''
+            UPDATE licenses SET expiry_date = ? WHERE user_id = ? AND status = 'active'
+        ''', (new_expiry, user_id))
+        
+        cursor.execute('''
+            UPDATE users SET expiry_date = ? WHERE user_id = ?
+        ''', (new_expiry, user_id))
+        
+        conn.commit()
+        conn.close()
+        return new_expiry
+    
+    conn.close()
+    return None
+
+# ========== UPGRADE FUNCTIONS ==========
+def save_upgrade_request(user_id, old_plan, new_plan, payment_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO upgrade_requests (user_id, old_plan, new_plan, payment_id, status)
+        VALUES (?, ?, ?, ?, 'pending')
+    ''', (user_id, old_plan, new_plan, payment_id))
+    conn.commit()
+    conn.close()
+
+def get_active_license_count():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM licenses WHERE status = "active"')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
 if __name__ == '__main__':
     init_database()
