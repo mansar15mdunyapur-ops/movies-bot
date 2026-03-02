@@ -132,7 +132,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /renew - Plan renew karein\n"
         "• /activate [key] - License activate karo\n\n"
         "<b>💳 Payment Issues?</b>\n"
-        "Contact admin: @YourAdminUsername"
+        "Contact admin: @Movieshub015helps"
     )
     
     await update.message.reply_text(help_text, reply_markup=keyboard, parse_mode='HTML')
@@ -459,4 +459,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
