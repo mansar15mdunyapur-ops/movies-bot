@@ -2,7 +2,7 @@
 import os
 import logging
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
     filters, CallbackQueryHandler, ContextTypes,
@@ -10,11 +10,12 @@ from telegram.ext import (
 )
 import database
 import payment
-import admin  # <-- IMPORTANT: Admin module add kiya
+import admin
 
 # Configuration
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY')
+ADMIN_IDS = [8178162794]  # Apna ID
 
 # Initialize database
 database.init_database()
@@ -25,6 +26,24 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ========== KEYBOARD FUNCTIONS ==========
+def get_main_keyboard(user_id=None):
+    """Main menu keyboard - hamesha dikhega"""
+    
+    # Main buttons - 2 in each row
+    keyboard = [
+        [KeyboardButton("🎬 Search Movie"), KeyboardButton("🎥 My Collection")],
+        [KeyboardButton("💳 Buy Plan"), KeyboardButton("📋 My Plan")],
+        [KeyboardButton("📝 Request Movie"), KeyboardButton("❓ Help")],
+        [KeyboardButton("📞 Contact Admin")]
+    ]
+    
+    # Admin button sirf admin ke liye
+    if user_id and user_id in ADMIN_IDS:
+        keyboard.append([KeyboardButton("👑 Admin Panel")])
+    
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ========== TMDb API FUNCTIONS ==========
 def search_tmdb(query):
@@ -75,44 +94,55 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     database.add_user(user.id, user.username, user.first_name)
     
+    # Get keyboard with buttons
+    keyboard = get_main_keyboard(user.id)
+    
     welcome_msg = (
         f"السلام علیکم <b>{user.first_name}!</b> ورحمتہ اللہ وبرکاتہ\n\n"
         "🎬 <b>Movie Bot</b> mein khush amdeed!\n\n"
-        "<b>✨ Features:</b>\n"
-        "• Movie search - Kisi bhi movie ka naam likho\n"
-        "• Movie details - Rating, cast, story, poster\n"
-        "• Subscription - /buy se lo\n\n"
-        "<b>📌 Commands:</b>\n"
-        "/movies - Collection dekhein\n"
-        "/buy - Subscription plans\n"
-        "/myplan - Apna plan check karein\n"
-        "/help - Madad\n\n"
-        "<b>Bas movie ka naam likho!</b> 🔍"
+        "👇 <b>Neche diye gaye buttons use karo:</b>\n"
+        "• 🎬 Search Movie - Movie search karo\n"
+        "• 🎥 My Collection - Hamari collection dekho\n"
+        "• 💳 Buy Plan - Subscription lo\n"
+        "• 📋 My Plan - Apna plan check karo\n"
+        "• 📝 Request Movie - Nai movie request karo\n"
+        "• ❓ Help - Madad\n"
+        "• 📞 Contact Admin - Admin se contact\n"
     )
-    await update.message.reply_text(welcome_msg, parse_mode='HTML')
+    
+    # Send message with keyboard
+    await update.message.reply_text(
+        welcome_msg, 
+        reply_markup=keyboard, 
+        parse_mode='HTML'
+    )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = get_main_keyboard(update.effective_user.id)
+    
     help_text = (
         "📚 <b>Madad</b> 📚\n\n"
         "<b>🎯 Movie Search:</b>\n"
-        "• Direct naam likho - Jaise 'Avengers', '3 Idiots'\n\n"
+        "• 'Search Movie' button dabao\n"
+        "• Movie ka naam likho\n\n"
         "<b>📋 Commands:</b>\n"
-        "/movies - Saari available movies\n"
-        "/buy - Subscription plans\n"
-        "/myplan - Current plan details\n"
-        "/renew - Plan renew karein\n"
-        "/activate [key] - License activate karo\n"
-        "/help - Yeh message\n\n"
+        "• /movies - Saari available movies\n"
+        "• /buy - Subscription plans\n"
+        "• /myplan - Current plan details\n"
+        "• /renew - Plan renew karein\n"
+        "• /activate [key] - License activate karo\n\n"
         "<b>💳 Payment Issues?</b>\n"
         "Contact admin: @YourAdminUsername"
     )
-    await update.message.reply_text(help_text, parse_mode='HTML')
+    
+    await update.message.reply_text(help_text, reply_markup=keyboard, parse_mode='HTML')
 
 async def movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = get_main_keyboard(update.effective_user.id)
     results = database.search_movies_db("")
     
     if not results:
-        await update.message.reply_text("📭 Filhaal koi movies nahi hain collection mein.")
+        await update.message.reply_text("📭 Filhaal koi movies nahi hain collection mein.", reply_markup=keyboard)
         return
     
     msg = "🎥 <b>Hamari Collection:</b>\n\n"
@@ -120,9 +150,89 @@ async def movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"• {title} ({year})\n"
     
     msg += f"\nTotal: {len(results)} movies"
-    await update.message.reply_text(msg, parse_mode='HTML')
+    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode='HTML')
+
+async def search_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search mode activate"""
+    keyboard = get_main_keyboard(update.effective_user.id)
+    await update.message.reply_text(
+        "🔍 Movie ka naam likho (e.g., 'Avengers'):",
+        reply_markup=keyboard
+    )
+    context.user_data['search_mode'] = True
+
+async def request_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Request mode activate"""
+    keyboard = get_main_keyboard(update.effective_user.id)
+    await update.message.reply_text(
+        "📝 Kaunsi movie chahiye? Naam likho:",
+        reply_markup=keyboard
+    )
+    context.user_data['request_mode'] = True
+
+async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Contact admin"""
+    keyboard = get_main_keyboard(update.effective_user.id)
+    await update.message.reply_text(
+        "📞 Admin se contact karne ke liye:\n"
+        "Telegram: @YourAdminUsername\n"
+        "Email: admin@example.com",
+        reply_markup=keyboard
+    )
+
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle all button clicks from keyboard"""
+    text = update.message.text
+    user_id = update.effective_user.id
+    keyboard = get_main_keyboard(user_id)
+    
+    # Main menu buttons
+    if text == "🎬 Search Movie":
+        await search_mode(update, context)
+    
+    elif text == "🎥 My Collection":
+        await movies_command(update, context)
+    
+    elif text == "💳 Buy Plan":
+        await payment.buy_command(update, context)
+    
+    elif text == "📋 My Plan":
+        await payment.myplan_command(update, context)
+    
+    elif text == "📝 Request Movie":
+        await request_mode(update, context)
+    
+    elif text == "❓ Help":
+        await help_command(update, context)
+    
+    elif text == "📞 Contact Admin":
+        await contact_admin(update, context)
+    
+    elif text == "👑 Admin Panel" and user_id in ADMIN_IDS:
+        await payment.admin_panel(update, context)
+    
+    # Handle search mode
+    elif context.user_data.get('search_mode'):
+        query = text
+        context.user_data['search_mode'] = False
+        await handle_message(update, context)
+    
+    # Handle request mode
+    elif context.user_data.get('request_mode'):
+        query = text
+        context.user_data['request_mode'] = False
+        database.add_request(user_id, query)
+        await update.message.reply_text(
+            f"✅ '{query}' request add kar di!",
+            reply_markup=keyboard
+        )
+    
+    # Normal message - direct search
+    else:
+        await handle_message(update, context)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle movie search results"""
     query = update.message.text.strip()
     
     if query.startswith('/'):
@@ -134,34 +244,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     results = search_tmdb(query)
     
     if not results:
-        keyboard = [[InlineKeyboardButton("📝 Request Movie", callback_data=f"req_{query}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        keyboard_inline = [[InlineKeyboardButton("📝 Request Movie", callback_data=f"req_{query}")]]
+        reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
         
         await update.message.reply_text(
             f"❌ '{query}' ke liye koi movie nahi mili!\n\n"
             "Request karo, hum add kar denge:",
-            reply_markup=reply_markup
+            reply_markup=reply_markup_inline
         )
         return
     
-    keyboard = []
+    # TMDb results dikhao
+    keyboard_inline = []
     for movie in results[:5]:
         title = movie['title']
         year = movie.get('release_date', '')[:4] if movie.get('release_date') else 'N/A'
         btn_text = f"ℹ️ {title} ({year})"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"info_{movie['id']}")])
+        keyboard_inline.append([InlineKeyboardButton(btn_text, callback_data=f"info_{movie['id']}")])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Back to main menu button
+    keyboard_inline.append([InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")])
+    
+    reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
     await update.message.reply_text(
         f"🔍 <b>'{query}' ke liye {len(results)} results:</b>\n\n"
         "Details ke liye select karo:",
-        reply_markup=reply_markup,
+        reply_markup=reply_markup_inline,
         parse_mode='HTML'
     )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button clicks"""
     query = update.callback_query
     await query.answer()
+    
+    user_id = query.from_user.id
+    keyboard_main = get_main_keyboard(user_id)
+    
+    if query.data == "main_menu":
+        await query.message.delete()
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="🔙 Main Menu:",
+            reply_markup=keyboard_main
+        )
+        return
     
     data = query.data.split('_')
     action = data[0]
@@ -206,8 +333,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📝 <b>Story:</b>\n{overview}\n\n"
         )
         
-        keyboard = [[InlineKeyboardButton("📝 Request This Movie", callback_data=f"req_{title}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        keyboard_inline = [
+            [InlineKeyboardButton("📝 Request This Movie", callback_data=f"req_{title}")],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+        ]
+        reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
         
         # Delete loading message
         await loading_msg.delete()
@@ -217,37 +347,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_photo(
                 photo=poster_url,
                 caption=info_msg,
-                reply_markup=reply_markup,
+                reply_markup=reply_markup_inline,
                 parse_mode='HTML'
             )
         else:
-            await query.message.reply_text(info_msg, reply_markup=reply_markup, parse_mode='HTML')
+            await query.message.reply_text(info_msg, reply_markup=reply_markup_inline, parse_mode='HTML')
     
     elif action == "req":
         movie_name = '_'.join(data[1:])
         database.add_request(query.from_user.id, movie_name)
         
-        # Check if message is photo or text
-        try:
-            if query.message.photo:
-                await context.bot.send_message(
-                    chat_id=query.from_user.id,
-                    text=f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
-                )
-                await query.message.delete()
-            else:
-                await query.edit_message_text(
-                    f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
-                )
-        except:
-            await context.bot.send_message(
-                chat_id=query.from_user.id,
-                text=f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏"
-            )
+        await query.edit_message_text(
+            f"✅ Request received!\n\nMovie: {movie_name}\nHum jald hi ise add karenge. Thanks! 🙏",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")
+            ]])
+        )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors"""
-    # Ignore specific errors
     error_str = str(context.error)
     if "There is no text in the message to edit" in error_str:
         return
@@ -290,8 +408,6 @@ def main():
     app.add_handler(CommandHandler("admin", payment.admin_panel))
     app.add_handler(CommandHandler("approve", payment.approve_payment))
     app.add_handler(CommandHandler("reject", payment.reject_payment))
-    
-    # ========== ADD MOVIE COMMAND (FIX) ==========
     app.add_handler(CommandHandler("addmovie", admin.add_movie_start))
     
     # Add conversation handler for add movie process
@@ -308,7 +424,6 @@ def main():
         fallbacks=[CommandHandler('cancel', admin.cancel)]
     )
     app.add_handler(add_movie_conv)
-    # ==============================================
     
     # Callback handlers
     app.add_handler(CallbackQueryHandler(payment.payment_callback, pattern='^buy_'))
@@ -326,13 +441,13 @@ def main():
     )
     app.add_handler(conv_handler)
     
-    # Message handlers
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Button handler for main keyboard
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_buttons))
     
     # Error handler
     app.add_error_handler(error_handler)
     
-    print("🎬 Movie Bot starting...")
+    print("🎬 Movie Bot starting with BUTTONS...")
     print("✅ Database connected!")
     print(f"📊 Total movies in DB: {database.get_total_movies()}")
     print(f"👥 Total users: {database.get_total_users()}")
