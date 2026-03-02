@@ -89,6 +89,39 @@ def get_tmdb_details(movie_id):
         logger.error(f"Details error: {e}")
     return None
 
+# ========== LANGUAGE FILTER FUNCTIONS ==========
+def filter_movies_by_language(movies, language):
+    """Filter movies by language"""
+    if language == 'all':
+        return movies
+    
+    filtered = []
+    for movie in movies:
+        title = movie.get('title', '').lower()
+        original_lang = movie.get('original_language', '')
+        
+        # Hindi
+        if language == 'hindi' and (original_lang == 'hi' or 'hindi' in title or 'bollywood' in title):
+            filtered.append(movie)
+        # Urdu
+        elif language == 'urdu' and ('urdu' in title or 'pakistan' in title or 'lahore' in title):
+            filtered.append(movie)
+        # Punjabi
+        elif language == 'punjabi' and ('punjabi' in title or 'jatt' in title or 'sardar' in title):
+            filtered.append(movie)
+        # Hindi Dubbed
+        elif language == 'hindidubbed' and ('dubbed' in title or 'hindi' in title or 'desi' in title):
+            filtered.append(movie)
+        # English
+        elif language == 'english' and original_lang == 'en':
+            filtered.append(movie)
+        # All others
+        else:
+            if language == 'all':
+                filtered.append(movie)
+    
+    return filtered if filtered else movies[:3]  # Return at least 3 movies
+
 # ========== BOT COMMAND HANDLERS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -124,7 +157,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 <b>Madad</b> 📚\n\n"
         "<b>🎯 Movie Search:</b>\n"
         "• 'Search Movie' button dabao\n"
-        "• Movie ka naam likho\n\n"
+        "• Pehle language select karo\n"
+        "• Phir movie ka naam likho\n\n"
         "<b>📋 Commands:</b>\n"
         "• /movies - Saari available movies\n"
         "• /buy - Subscription plans\n"
@@ -153,13 +187,62 @@ async def movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=keyboard, parse_mode='HTML')
 
 async def search_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Search mode activate"""
-    keyboard = get_main_keyboard(update.effective_user.id)
+    """Search mode with language selection"""
+    keyboard_main = get_main_keyboard(update.effective_user.id)
+    
+    # Language selection buttons
+    keyboard_inline = [
+        [InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_hindi"),
+         InlineKeyboardButton("🇵🇰 Urdu", callback_data="lang_urdu")],
+        [InlineKeyboardButton("🎭 Punjabi", callback_data="lang_punjabi"),
+         InlineKeyboardButton("🇮🇳 Hindi Dubbed", callback_data="lang_hindidubbed")],
+        [InlineKeyboardButton("🇺🇸 English", callback_data="lang_english"),
+         InlineKeyboardButton("🎬 All Languages", callback_data="lang_all")],
+        [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+    ]
+    reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
+    
     await update.message.reply_text(
-        "🔍 Movie ka naam likho (e.g., 'Avengers'):",
-        reply_markup=keyboard
+        "🔍 <b>Movie Search</b>\n\n"
+        "Pehle language select karo:\n"
+        "👇 Neche diye gaye buttons mein se choose karo",
+        reply_markup=reply_markup_inline,
+        parse_mode='HTML'
     )
+    
     context.user_data['search_mode'] = True
+
+async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle language selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    lang = data.replace('lang_', '')
+    
+    # Store language in context
+    context.user_data['selected_language'] = lang
+    
+    # Language display names
+    lang_names = {
+        'hindi': '🇮🇳 Hindi',
+        'urdu': '🇵🇰 Urdu',
+        'punjabi': '🎭 Punjabi',
+        'hindidubbed': '🇮🇳 Hindi Dubbed',
+        'english': '🇺🇸 English',
+        'all': '🎬 All Languages'
+    }
+    
+    lang_display = lang_names.get(lang, lang.upper())
+    
+    await query.edit_message_text(
+        f"✅ <b>{lang_display}</b> select ki gayi\n\n"
+        f"Ab movie ka naam likho (e.g., 'Avengers', '3 Idiots'):",
+        parse_mode='HTML'
+    )
+    
+    # Set flag for movie search
+    context.user_data['awaiting_movie_name'] = True
 
 async def request_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Request mode activate"""
@@ -211,10 +294,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "👑 Admin Panel" and user_id in ADMIN_IDS:
         await payment.admin_panel(update, context)
     
-    # Handle search mode
-    elif context.user_data.get('search_mode'):
+    # Handle search mode - movie name after language selection
+    elif context.user_data.get('awaiting_movie_name'):
         query = text
-        context.user_data['search_mode'] = False
+        context.user_data['awaiting_movie_name'] = False
         await handle_message(update, context)
     
     # Handle request mode
@@ -227,16 +310,19 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard
         )
     
-    # Normal message - direct search
+    # Normal message - direct search with last used language
     else:
         await handle_message(update, context)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle movie search results"""
+    """Handle movie search results with language filter"""
     query = update.message.text.strip()
     
     if query.startswith('/'):
         return
+    
+    # Get selected language (default to all)
+    selected_lang = context.user_data.get('selected_language', 'all')
     
     await update.message.chat.send_action(action='typing')
     
@@ -254,24 +340,112 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Filter results by language
+    filtered_results = filter_movies_by_language(results, selected_lang)
+    
+    # Language display names
+    lang_names = {
+        'hindi': '🇮🇳 Hindi',
+        'urdu': '🇵🇰 Urdu',
+        'punjabi': '🎭 Punjabi',
+        'hindidubbed': '🇮🇳 Hindi Dubbed',
+        'english': '🇺🇸 English',
+        'all': '🎬 All Languages'
+    }
+    
+    lang_display = lang_names.get(selected_lang, 'All Languages')
+    
     # TMDb results dikhao
     keyboard_inline = []
-    for movie in results[:5]:
+    for movie in filtered_results[:5]:
         title = movie['title']
         year = movie.get('release_date', '')[:4] if movie.get('release_date') else 'N/A'
-        btn_text = f"ℹ️ {title} ({year})"
+        original_lang = movie.get('original_language', '')
+        
+        # Language flag emoji
+        if original_lang == 'hi':
+            lang_flag = "🇮🇳"
+        elif original_lang == 'en':
+            lang_flag = "🇺🇸"
+        elif original_lang == 'pa':
+            lang_flag = "🎭"
+        else:
+            lang_flag = "🌍"
+        
+        btn_text = f"{lang_flag} {title} ({year})"
         keyboard_inline.append([InlineKeyboardButton(btn_text, callback_data=f"info_{movie['id']}")])
     
-    # Back to main menu button
+    # Filter and main menu options
+    keyboard_inline.append([InlineKeyboardButton("🔍 Change Language", callback_data="show_languages")])
     keyboard_inline.append([InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")])
     
     reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
+    
     await update.message.reply_text(
-        f"🔍 <b>'{query}' ke liye {len(results)} results:</b>\n\n"
-        "Details ke liye select karo:",
+        f"🔍 <b>'{query}' ke liye {len(filtered_results)} results</b>\n"
+        f"📌 <b>Language:</b> {lang_display}\n\n"
+        f"👇 Select movie:",
         reply_markup=reply_markup_inline,
         parse_mode='HTML'
     )
+
+async def show_languages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show language filter options"""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard_inline = [
+        [InlineKeyboardButton("🇮🇳 Hindi", callback_data="filter_hindi"),
+         InlineKeyboardButton("🇵🇰 Urdu", callback_data="filter_urdu")],
+        [InlineKeyboardButton("🎭 Punjabi", callback_data="filter_punjabi"),
+         InlineKeyboardButton("🇮🇳 Hindi Dubbed", callback_data="filter_hindidubbed")],
+        [InlineKeyboardButton("🇺🇸 English", callback_data="filter_english"),
+         InlineKeyboardButton("🎬 All Languages", callback_data="filter_all")],
+        [InlineKeyboardButton("🔙 Back", callback_data="back_to_results")]
+    ]
+    reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
+    
+    await query.edit_message_text(
+        "🔍 <b>Filter by Language:</b>\n\n"
+        "Choose language:",
+        reply_markup=reply_markup_inline,
+        parse_mode='HTML'
+    )
+
+async def filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle language filter selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    lang = data.replace('filter_', '')
+    
+    context.user_data['selected_language'] = lang
+    
+    # Language display names
+    lang_names = {
+        'hindi': '🇮🇳 Hindi',
+        'urdu': '🇵🇰 Urdu',
+        'punjabi': '🎭 Punjabi',
+        'hindidubbed': '🇮🇳 Hindi Dubbed',
+        'english': '🇺🇸 English',
+        'all': '🎬 All Languages'
+    }
+    
+    lang_display = lang_names.get(lang, lang.upper())
+    
+    await query.edit_message_text(
+        f"✅ <b>{lang_display}</b> filter applied!\n\n"
+        f"Ab dobara movie search karo.",
+        parse_mode='HTML'
+    )
+
+async def back_to_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Go back to previous results"""
+    query = update.callback_query
+    await query.answer()
+    await query.message.delete()
+    await query.message.reply_text("🔍 Dobara movie search karo.")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle inline button clicks"""
@@ -431,6 +605,12 @@ def main():
     app.add_handler(CallbackQueryHandler(payment.upgrade_callback, pattern='^upgrade_'))
     app.add_handler(CallbackQueryHandler(button_callback))
     
+    # Language filter callbacks
+    app.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
+    app.add_handler(CallbackQueryHandler(show_languages, pattern='^show_languages$'))
+    app.add_handler(CallbackQueryHandler(filter_callback, pattern='^filter_'))
+    app.add_handler(CallbackQueryHandler(back_to_results, pattern='^back_to_results$'))
+    
     # Conversation handler for payment screenshots
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(payment.paid_callback, pattern='^paid_')],
@@ -447,7 +627,7 @@ def main():
     # Error handler
     app.add_error_handler(error_handler)
     
-    print("🎬 Movie Bot starting with BUTTONS...")
+    print("🎬 Movie Bot starting with LANGUAGE FILTER...")
     print("✅ Database connected!")
     print(f"📊 Total movies in DB: {database.get_total_movies()}")
     print(f"👥 Total users: {database.get_total_users()}")
@@ -459,5 +639,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
