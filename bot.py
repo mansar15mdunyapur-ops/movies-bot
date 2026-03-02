@@ -204,8 +204,7 @@ async def search_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "🔍 <b>Movie Search</b>\n\n"
-        "Pehle language select karo:\n"
-        "👇 Neche diye gaye buttons mein se choose karo",
+        "Pehle language select karo:",
         reply_markup=reply_markup_inline,
         parse_mode='HTML'
     )
@@ -237,7 +236,7 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         f"✅ <b>{lang_display}</b> select ki gayi\n\n"
-        f"Ab movie ka naam likho (e.g., 'Avengers', '3 Idiots'):",
+        f"Ab movie ka naam likho:",
         parse_mode='HTML'
     )
     
@@ -334,8 +333,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
         
         await update.message.reply_text(
-            f"❌ '{query}' ke liye koi movie nahi mili!\n\n"
-            "Request karo, hum add kar denge:",
+            f"❌ '{query}' ke liye koi movie nahi mili!",
             reply_markup=reply_markup_inline
         )
         return
@@ -599,17 +597,20 @@ def main():
     )
     app.add_handler(add_movie_conv)
     
-    # Callback handlers
-    app.add_handler(CallbackQueryHandler(payment.payment_callback, pattern='^buy_'))
-    app.add_handler(CallbackQueryHandler(payment.paid_callback, pattern='^paid_'))
-    app.add_handler(CallbackQueryHandler(payment.upgrade_callback, pattern='^upgrade_'))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Language filter callbacks
+    # ========== CALLBACK HANDLERS - CORRECT ORDER ==========
+    # 1. Language callbacks
     app.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
     app.add_handler(CallbackQueryHandler(show_languages, pattern='^show_languages$'))
     app.add_handler(CallbackQueryHandler(filter_callback, pattern='^filter_'))
     app.add_handler(CallbackQueryHandler(back_to_results, pattern='^back_to_results$'))
+    
+    # 2. Payment callbacks
+    app.add_handler(CallbackQueryHandler(payment.payment_callback, pattern='^buy_'))
+    app.add_handler(CallbackQueryHandler(payment.paid_callback, pattern='^paid_'))
+    app.add_handler(CallbackQueryHandler(payment.upgrade_callback, pattern='^upgrade_'))
+    
+    # 3. General button callback (catch all)
+    app.add_handler(CallbackQueryHandler(button_callback))
     
     # Conversation handler for payment screenshots
     conv_handler = ConversationHandler(
