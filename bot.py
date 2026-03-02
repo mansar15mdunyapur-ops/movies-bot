@@ -89,38 +89,49 @@ def get_tmdb_details(movie_id):
         logger.error(f"Details error: {e}")
     return None
 
-# ========== LANGUAGE FILTER FUNCTIONS ==========
+# ========== LANGUAGE FILTER FUNCTIONS (FIXED) ==========
 def filter_movies_by_language(movies, language):
-    """Filter movies by language"""
+    """Filter movies by exact language"""
     if language == 'all':
         return movies
     
     filtered = []
+    
     for movie in movies:
         title = movie.get('title', '').lower()
-        original_lang = movie.get('original_language', '')
+        original_lang = movie.get('original_language', '').lower()
+        overview = movie.get('overview', '').lower()
         
-        # Hindi
-        if language == 'hindi' and (original_lang == 'hi' or 'hindi' in title or 'bollywood' in title):
-            filtered.append(movie)
-        # Urdu
-        elif language == 'urdu' and ('urdu' in title or 'pakistan' in title or 'lahore' in title):
-            filtered.append(movie)
-        # Punjabi
-        elif language == 'punjabi' and ('punjabi' in title or 'jatt' in title or 'sardar' in title):
-            filtered.append(movie)
-        # Hindi Dubbed
-        elif language == 'hindidubbed' and ('dubbed' in title or 'hindi' in title or 'desi' in title):
-            filtered.append(movie)
-        # English
-        elif language == 'english' and original_lang == 'en':
-            filtered.append(movie)
-        # All others
-        else:
-            if language == 'all':
+        # Urdu movies - exact match
+        if language == 'urdu':
+            if original_lang == 'ur' or 'urdu' in title or 'pakistan' in title or 'lahore' in title:
                 filtered.append(movie)
+        
+        # Punjabi movies - exact match
+        elif language == 'punjabi':
+            if original_lang == 'pa' or 'punjabi' in title or 'jatt' in title or 'sardar' in title:
+                filtered.append(movie)
+        
+        # Hindi movies - exact match
+        elif language == 'hindi':
+            if original_lang == 'hi' or 'hindi' in title or 'bollywood' in title:
+                filtered.append(movie)
+        
+        # Hindi Dubbed movies
+        elif language == 'hindidubbed':
+            if 'dubbed' in title or 'hindi' in title or 'desi' in title:
+                filtered.append(movie)
+        
+        # English movies - exact match
+        elif language == 'english':
+            if original_lang == 'en':
+                filtered.append(movie)
+        
+        # All others
+        elif language == 'all':
+            filtered.append(movie)
     
-    return filtered if filtered else movies[:3]  # Return at least 3 movies
+    return filtered
 
 # ========== BOT COMMAND HANDLERS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -314,7 +325,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_message(update, context)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle movie search results with language filter"""
+    """Handle movie search results with exact language filter"""
     query = update.message.text.strip()
     
     if query.startswith('/'):
@@ -338,8 +349,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Filter results by language
+    # Filter results by exact language
     filtered_results = filter_movies_by_language(results, selected_lang)
+    
+    # Agar filtered results empty hain to user ko batao
+    if not filtered_results:
+        lang_names = {
+            'hindi': '🇮🇳 Hindi',
+            'urdu': '🇵🇰 Urdu',
+            'punjabi': '🎭 Punjabi',
+            'hindidubbed': '🇮🇳 Hindi Dubbed',
+            'english': '🇺🇸 English',
+            'all': '🎬 All Languages'
+        }
+        lang_display = lang_names.get(selected_lang, selected_lang)
+        
+        keyboard_inline = [
+            [InlineKeyboardButton("🌍 Search in All Languages", callback_data="lang_all")],
+            [InlineKeyboardButton("📝 Request Movie", callback_data=f"req_{query}")],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu")]
+        ]
+        reply_markup_inline = InlineKeyboardMarkup(keyboard_inline)
+        
+        await update.message.reply_text(
+            f"❌ <b>{lang_display}</b> mein '{query}' ke liye koi movie nahi mili!\n\n"
+            f"Dobara search karo ya language change karo.",
+            reply_markup=reply_markup_inline,
+            parse_mode='HTML'
+        )
+        return
     
     # Language display names
     lang_names = {
@@ -360,13 +398,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         year = movie.get('release_date', '')[:4] if movie.get('release_date') else 'N/A'
         original_lang = movie.get('original_language', '')
         
-        # Language flag emoji
+        # Language flag emoji based on actual language
         if original_lang == 'hi':
             lang_flag = "🇮🇳"
-        elif original_lang == 'en':
-            lang_flag = "🇺🇸"
+        elif original_lang == 'ur':
+            lang_flag = "🇵🇰"
         elif original_lang == 'pa':
             lang_flag = "🎭"
+        elif original_lang == 'en':
+            lang_flag = "🇺🇸"
         else:
             lang_flag = "🌍"
         
@@ -628,7 +668,7 @@ def main():
     # Error handler
     app.add_error_handler(error_handler)
     
-    print("🎬 Movie Bot starting with LANGUAGE FILTER...")
+    print("🎬 Movie Bot starting with EXACT LANGUAGE FILTER...")
     print("✅ Database connected!")
     print(f"📊 Total movies in DB: {database.get_total_movies()}")
     print(f"👥 Total users: {database.get_total_users()}")
