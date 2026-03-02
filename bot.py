@@ -622,6 +622,12 @@ def main():
     app.add_handler(CommandHandler("reject", payment.reject_payment))
     app.add_handler(CommandHandler("addmovie", admin.add_movie_start))
     
+    # ========== NEW BAN/UNBAN COMMANDS ==========
+    app.add_handler(CommandHandler("ban", admin.ban_command))
+    app.add_handler(CommandHandler("unban", admin.unban_command))
+    app.add_handler(CommandHandler("banned", admin.banned_list))
+    # ============================================
+    
     # Add conversation handler for add movie process
     from admin import ADD_MOVIE_TMDB, ADD_MOVIE_QUALITY, ADD_MOVIE_FILE, ADD_MOVIE_SIZE
     
