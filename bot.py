@@ -175,8 +175,8 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = get_main_keyboard(update.effective_user.id)
     await update.message.reply_text(
         "📞 Admin se contact karne ke liye:\n"
-        "Telegram: @YourAdminUsername\n"
-        "Email: admin@example.com",
+        "Telegram: @movieshub015help\n"
+        "Email: mansar15mdunyapur.com",
         reply_markup=keyboard
     )
 
@@ -459,3 +459,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
